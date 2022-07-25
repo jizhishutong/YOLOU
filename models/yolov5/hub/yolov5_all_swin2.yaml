@@ -1,0 +1,45 @@
+# reference all_swin_transformerV2
+
+# Parameters
+nc: 80  # number of classes
+depth_multiple: 0.33  # model depth multiple
+width_multiple: 0.50  # layer channel multiple
+anchors:
+  - [10,13, 16,30, 33,23]  # P3/8
+  - [30,61, 62,45, 59,119]  # P4/16
+  - [116,90, 156,198, 373,326]  # P5/32
+
+# YOLOv5 v6.0 backbone
+backbone:
+  # [from, number, module, args]
+  [[-1, 1, PatchEmbed, [4,3,96]],  # 0-P1/2
+   [-1, 1, SwinTransformer_Layer, [96,2,3]],  # 1-P2/4   [1, 192, 32, 32])
+   [-1, 1, SwinTransformer_Layer, [192,2,6]],           # [1, 384, 16, 16])
+   [-1, 1, SwinTransformer_Layer, [384,6,12]],  # 3-P4/8    [1, 768, 8, 8])
+   [-1, 1, SwinTransformer_Layer, [768,2,24,True]],  #    True：last_layer no PathchMerging  [1, 768, 8, 8])
+   
+  ]
+
+# YOLOv5 v6.0 head
+head:
+  [
+    [-1, 1,  PatchEmbed, [1,768,384]],    #5      384,8,8
+    [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+    [[-1, 2], 1, Concat, [1]],  # cat backbone P4
+     [-1, 1, SwinTransformer_Layer, [768,2,12,True,4]],  #  [1, 768, 16, 16])
+
+    [-1, 1, PatchEmbed, [1,768,192]],    #9   [1, 192, 16, 16]
+    [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+    [[-1, 1], 1, Concat, [1]],  # cat backbone P3
+    [-1, 1, SwinTransformer_Layer, [384,2,12,True,4]],  # 12 (P3/8-small)  torch.Size([1, 384, 32, 32])
+
+    [-1, 1, PatchEmbed, [2,384,192]],    #13
+    [[-1, 9], 1, Concat, [1]],  # cat head P4
+    [-1, 1, SwinTransformer_Layer, [384,2,12,True,4]],  # 15 (P4/16-medium)     16 16
+
+    [-1, 1, PatchEmbed, [2,384,384]],  #16
+    [[-1, 5], 1, Concat, [1]],  # cat head P5
+    [-1, 1, SwinTransformer_Layer, [768,2,24,True,4]],  # 18 (P5/32-large)
+
+   [[12, 15, 18], 1, Detect, [nc, anchors,[384,384,768]]],  # Detect(P3, P4, P5)
+  ]

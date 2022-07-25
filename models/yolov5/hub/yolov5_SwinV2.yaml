@@ -1,0 +1,49 @@
+# YOLOv5 🚀 by Ultralytics, GPL-3.0 license
+
+# Parameters
+nc: 80  # number of classes
+depth_multiple: 0.33  # model depth multiple
+width_multiple: 0.50  # layer channel multiple
+anchors:
+  - [10,13, 16,30, 33,23]  # P3/8
+  - [30,61, 62,45, 59,119]  # P4/16
+  - [116,90, 156,198, 373,326]  # P5/32
+
+# YOLOv5 -SwinV2.0 Backbone
+backbone:
+  # [from, number, module, args]
+  [[-1, 1, PatchEmbed, [4,3,64]],  # 0-P1/2
+   [-1, 1, SwinTransformer_Layer, [64,2,2]],  # 1-P2/4   [1, 128, 32, 32])
+   [-1, 1, SwinTransformer_Layer, [128,2,4]],           # 2[1, 256, 16, 16])
+   [-1, 1, SwinTransformer_Layer, [256,6,8,True]],                      
+   [-1, 1, LayerNorm, [256]],
+   [-1, 1, SwinTransformer_Layer, [256,6,8,True]],
+   [-1, 1, LayerNorm, [256]],  # 3-P5/8                 
+   [-1, 1, SwinTransformer_Layer, [256,6,8]],   #7    [1, 512, 8, 8])
+   [-1, 1, SwinTransformer_Layer, [512,2,16,True]],  # 8  True：last_layer no PathchMerging  
+   
+  ]
+
+# YOLOv5 v6.0 head
+head:
+  [
+    [-1, 1,  nn.Conv2d, [512,256,1]],    #9      1,512,8,8
+    [-1, 1, nn.Upsample, [None, 2, 'nearest']], #1,512,8,8
+    [[-1, 2], 1, Concat, [1]],  # cat backbone P4
+     [-1, 1, SwinTransformer_Layer, [512,2,8,True,4]],  #  [1, 512, 16, 16]) 
+
+    [-1, 1, nn.Conv2d, [512,128,1]],    #13 [1, 256, 8, 8]
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+    [[-1, 1], 1, Concat, [1]],  # cat backbone P3
+    [-1, 1, SwinTransformer_Layer, [256,2,2,True,8]],  # 16 (P3/8-small)  torch.Size([1, 256, 32, 32])
+
+    [-1, 1, nn.Conv2d, [256,128,1,2]],    #13  
+    [[-1, 13], 1, Concat, [1]],  # cat head P4
+    [-1, 1, SwinTransformer_Layer, [256,2,2,True,8]],  # 19 (P4/16-medium)     16 16
+
+    [-1, 1, nn.Conv2d, [256,256,1,2]],  #16
+    [[-1, 9], 1, Concat, [1]],  # cat head P5
+    [-1, 1, SwinTransformer_Layer, [512,2,2,True,8]],  # 22 (P5/32-large)
+
+   [[16,19, 22], 1, Detect, [nc, anchors,[256,256,512]]],  # Detect(P3, P4, P5)
+  ]

@@ -1,0 +1,42 @@
+# Parameters
+nc: 80  # number of classes
+depth_multiple: 0.33  # model depth multiple
+width_multiple: 0.50  # layer channel multiple
+anchors: 1  # number of anchors
+
+# YOLOv6 backbone
+backbone:
+  # [from, number, module, args]
+  [[-1, 1, RepVGGBlock, [64, 3, 2]],      # 0-P1/2
+   [-1, 1, RepVGGBlock, [128, 3, 2]],     # 1-P2/4
+   [-1, 1, RepBlock   , [64, 64, 2]],     # 2
+   [-1, 1, RepVGGBlock, [256, 3, 2]],     # 3-P3/8
+   [-1, 1, RepBlock   , [128, 128, 4]],   # 4
+   [-1, 1, RepVGGBlock, [512, 3, 2] ],    # 5-P3/16
+   [-1, 1, RepBlock   , [256, 256, 6] ],  # 6
+   [-1, 1, RepVGGBlock, [1024, 3, 2] ],   # 7-P3/32
+   [-1, 1, RepBlock   , [512, 512, 2] ],  # 8
+   [-1, 1, SimSPPF    , [512, 512, 5]],   # 9
+  ]
+
+# YOLOv6 head
+head:
+  [[-1, 1, SimConv, [512, 128, 1, 1]],  # 10
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [[-1, 6], 1, Concat, [1]],           # 12 cat backbone P4
+   [-1, 1, RepBlock, [384, 128, 4]],    # 13
+
+   [-1, 1, SimConv, [128, 64, 1, 1]],   # 14
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [[-1, 4], 1, Concat, [1]],           # 16 cat backbone P3
+   [-1, 1, RepBlock, [192, 64, 4]],     # 17 (P3/8-small)    [64, 80, 80]
+
+   [-1, 1, SimConv, [64, 64, 3, 2]],    # 18
+   [[-1, 14], 1, Concat, [1]],          # 19 cat head P4
+   [-1, 1, RepBlock, [128, 128, 4]],     # 20 (P4/16-medium) [128, 40, 40]
+
+   [-1, 1, SimConv, [128, 128, 3, 2]],   # 21
+   [[-1, 10], 1, Concat, [1]],          # 22 cat head P5
+   [-1, 1, RepBlock, [256, 256, 4]],    # 23 (P5/32-large)   [256, 20, 20]
+   [[17, 20, 23], 1, Detectv6, [nc, [64, 128, 256]]],  # Detect(P3, P4, P5)
+  ]
