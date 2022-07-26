@@ -45,6 +45,8 @@ At present, the YOLO series algorithms mainly included in YOLOU are:
 | X-Lite-c   |     512      | Training… | Training… |     6.25      |  5.92  |                              |                               |
 | X-Lite-g   |     640      |   58.3    |   40.7    |     7.30      | 12.91  |         2.15/465.19          |          1.01/990.69          |
 
+You can download all pretrained weights of YOLOU  with [Baidu Drive (YOLO)](https://pan.baidu.com/s/1Ws4Aieyt7gne9nrCK7VHJA)
+
 ## How to use
 
 ### Install
