@@ -17,7 +17,7 @@ At present, the YOLO series algorithms mainly included in YOLOU are:
 ## Comparison of ablation experiment results
 
 | Model      | size(pixels) |  mAP@.5   | mAP@.5:95 | Parameters(M) | GFLOPs | TensorRT-FP32(b16)<br>ms/fps | TensorRT-FP16(b16)<br/>ms/fps |
-| :--------- | :----------: | :-------: | :-------: | :-----------: | :----: | :--------------------------: | :---------------------------: |
+| :--------- | :----------: |:---------:|:---------:| :-----------: | :----: | :--------------------------: | :---------------------------: |
 | YOLOv5n    |     640      |   45.7    |   28.0    |      1.9      |  4.5   |         0.95/1054.64         |         0.61/1631.64          |
 | YOLOv5s    |     640      |   56.8    |   37.4    |      7.2      |  16.5  |          1.7/586.8           |         0.84/1186.42          |
 | YOLOv5m    |     640      |   64.1    |   45.4    |     21.2      |  49.0  |         4.03/248.12          |          1.42/704.20          |
@@ -25,7 +25,7 @@ At present, the YOLO series algorithms mainly included in YOLOU are:
 | YOLOv5x    |     640      |   68.9    |   50.7    |     86.7      | 205.7  |                              |                               |
 | YOLOv6-T   |     640      |           |           |               |        |                              |                               |
 | YOLOv6-n   |     640      |           |           |               |        |                              |                               |
-| YOLOv6     |     640      |   58.4    |   39.8    |     20.4      |  28.8  |         3.06/326.93          |          1.27/789.51          |
+| YOLOv6     |     640      |   60.0    |   41.3    |     20.4      |  28.8  |         3.06/326.93          |          1.27/789.51          |
 | YOLOv7     |     640      |   69.7    |   51.4    |     37.6      |  53.1  |         8.18/113.88          |          1.97/507.55          |
 | YOLOv7-X   |     640      |   71.2    |   53.7    |     71.3      |  95.1  |                              |                               |
 | YOLOv7-W6  |     640      |   72.6    |   54.9    |               |        |                              |                               |
@@ -106,8 +106,34 @@ val: ../coco/images/val2017/
 ### Export ONNX
 
 ```bash
-python export.py --weights ./weights/yolov6/yolov6s.pt --include onnx
+python export.py --weights ./weights/yolov6/yolov6s.pt
 ```
+
+​	In order to facilitate the deployment and implementation of friends here, all models included in YOLOU have been processed to a certain extent, and their pre- and post-processing codes can be used in one set, because the format and output results of the ONNX files they export are consistent. 
+
+#### YOLOv5
+
+![YOLOU](./images/yolov5-onnx.png)
+
+#### YOLOv6
+
+![YOLOU](./images/yolov6-onnx.png)
+
+#### YOLOv7
+
+![YOLOU](./images/yolov7-onnx.png)
+
+#### YOLOX
+
+![YOLOU](./images/yolox-onnx.png)
+
+#### YOLOv5-Lite
+
+![YOLOU](./images/v5lite-onnx.png)
+
+#### YOLOX-Lite
+
+![YOLOU](./images/yolox-lite-onnx.png)
 
 ## Reference
 
