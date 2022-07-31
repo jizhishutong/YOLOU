@@ -5,6 +5,9 @@
 import sys
 from pathlib import Path
 import logging
+
+import torch
+
 FILE = Path(__file__).absolute()
 sys.path.append(FILE.parents[1].as_posix())
 
@@ -24,6 +27,7 @@ LOGGER = logging.getLogger(__name__)
 class DetectX(nn.Module):
     stride = [8, 16, 32]
     onnx_dynamic = False  # ONNX export parameter
+    export = False
 
     def __init__(self, num_classes, anchors=1, in_channels=(128, 128, 128, 128, 128, 128), inplace=True, prior_prob=1e-2,):
         super().__init__()
@@ -160,10 +164,22 @@ class DetectX(nn.Module):
         if self.training:
             return outputs
         else:
+            if self.export:
+                bs = -1
+                no = outputs[0].shape[1]
+            else:
+                bs, no = outputs[0].shape[0], outputs[0].shape[1]
+
             self.hw = [out.shape[-2:] for out in outputs]
+
             # [batch, n_anchors_all, 85]
-            out = torch.cat([out.flatten(start_dim=2) for out in outputs], dim=2).permute(0, 2, 1)
-            out = self.decode_outputs(out, dtype=x[0].type())  # torch.Size([32, 5733, 6])
+            outs = []
+            for i in range(len(outputs)):
+                h, w = self.hw[i]
+                out = outputs[i]
+                outs.append(out.view(bs, no, h * w))
+            out = torch.cat(outs, dim=-1).permute(0, 2, 1)
+            out = self.decode_outputs(out, dtype=x[0].type())
             return (out,)
 
     def forward_export(self, x):
@@ -213,7 +229,7 @@ class DetectX(nn.Module):
 
         return reg_box, grid, xy_shift, expanded_stride, center_ltrb
 
-    def decode_outputs(self, outputs, dtype):
+    def make_grid(self, dtype):
         grids = []
         strides = []
         for (hsize, wsize), stride in zip(self.hw, self.stride):
@@ -222,13 +238,17 @@ class DetectX(nn.Module):
             grids.append(grid)
             shape = grid.shape[:2]
             strides.append(torch.full((*shape, 1), stride))
-
         grids = torch.cat(grids, dim=1).type(dtype)
         strides = torch.cat(strides, dim=1).type(dtype)
+        return grids, strides
 
-        outputs[..., :2] = (outputs[..., :2] + grids) * strides
-        outputs[..., 2:4] = torch.exp(outputs[..., 2:4]) * strides
-        return outputs
+    def decode_outputs(self, outputs, dtype):
+        grids, strides = self.make_grid(dtype)
+        xy = (outputs[..., :2] + grids) * strides
+        wh = torch.exp(outputs[..., 2:4]) * strides
+        score = outputs[..., 4:]
+        out = torch.cat([xy, wh, score], -1)
+        return out
 
     def get_losses(self, bbox_preds, cls_preds, obj_preds, origin_preds, org_xy_shifts, xy_shifts, expanded_strides,
                    center_ltrbes, whwh, labels, dtype,):
