@@ -169,6 +169,8 @@ https://github.com/cmdbug/YOLOv5_NCNN
 
 https://github.com/OAID/Tengine
 
+https://github.com/dog-qiuqiu/Yolo-FastestV2
+
 ## Citing YOLOU
 
 If you use YOLOU in your research, please cite our work and give a star ⭐:
