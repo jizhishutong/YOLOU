@@ -51,7 +51,7 @@ from utils.general import (LOGGER, check_amp, check_dataset, check_file, check_g
                            labels_to_image_weights, methods, one_cycle, print_args, print_mutation, strip_optimizer)
 from utils.loggers import Loggers
 from utils.loggers.wandb.wandb_utils import check_wandb_resume
-from utils.loss import ComputeLoss, ComputeLossOTA, ComputeLossAuxOTA, ComputeXLoss, Computev6Loss
+from utils.loss import ComputeLoss, ComputeLossOTA, ComputeLossAuxOTA, ComputeXLoss, Computev6Loss, ComputeFasterV2Loss
 from utils.metrics import fitness
 from utils.plots import plot_evolve, plot_labels
 from utils.torch_utils import EarlyStopping, ModelEMA, de_parallel, select_device, torch_distributed_zero_first, is_parallel
@@ -368,6 +368,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         compute_loss = ComputeXLoss(model)
     elif mode == 'yolov6':
         compute_loss = Computev6Loss()
+    elif mode == 'yolo-fasterV2':
+        compute_loss = ComputeFasterV2Loss(model)
     else:
         compute_loss = None
 
@@ -455,6 +457,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     loss, loss_items = compute_loss(pred, targets.to(device))
                 elif mode == 'yoloe':
                     loss, loss_items = compute_loss(pred, targets.to(device), epoch)
+                elif mode == 'yolo-fasterV2':
+                    loss, loss_items = compute_loss(pred, targets.to(device))
                 else:
                     loss, loss_items = 0, 0
 
@@ -577,7 +581,8 @@ def parse_opt(known=False):
     parser.add_argument('--mode', type=str, default='yolov6', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
                                                                   'yolov7 :[yolov7, ]'
                                                                   'yolox  :[yolox, yolox-lite]'
-                                                                  'yolov6  :[yolov6, ]')
+                                                                  'yolov6  :[yolov6, ]'
+                                                                  'yolo-fasterV2')
     parser.add_argument('--use_aux', type=bool, default=False, help='ues aux loss or not')
     parser.add_argument('--weights', type=str, default=ROOT / 'weights/yolov5s.pt', help='initial weights path')
     parser.add_argument('--cfg', type=str, default=ROOT / 'models/yolov6/yolov6s.yaml', help='model.yaml path')
@@ -596,7 +601,7 @@ def parse_opt(known=False):
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache', type=str, nargs='?', const='ram', help='--cache images in "ram" (default) or "disk"')
     parser.add_argument('--image-weights', action='store_true', help='use weighted image selection for training')
-    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--multi-scale', action='store_true', help='vary img-size +/- 50%%')
     parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
     parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='SGD', help='optimizer')

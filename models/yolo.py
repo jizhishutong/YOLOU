@@ -24,6 +24,7 @@ from models.yolov5 import Detect, Decoupled_Detect, ASFF_Detect
 from models.yolov7 import IAuxDetect, IDetect, IBin, Detectv7
 from models.yolox import DetectX
 from models.yolov6 import Detectv6
+from models.yolo_fasterV2 import DetectFaster
 
 from utils.autoanchor import check_anchor_order
 from utils.general import LOGGER, check_yaml, make_divisible, print_args
@@ -92,6 +93,17 @@ class Model(nn.Module):
             m.inplace = self.inplace
             self.stride = torch.tensor(m.stride)
             m.initialize_biases()     # only run once
+
+        if isinstance(m, DetectFaster):
+            s = 256  # 2x min stride
+            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
+            m.anchors /= m.stride.view(2, 3, 1)
+            check_anchor_order(m)
+            self.stride = m.stride
+            m.initialize_biases()
+            # param_dict = torch.load("../weights/yolofasterv2.pth")
+            # for i in param_dict:
+            #     self.model.state_dict()[i].copy_(param_dict[i])
 
         # if isinstance(m, DetectE):
         #     self.stride = torch.tensor(m.stride)
@@ -286,7 +298,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in (
-        Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP,
+        Conv, SimConv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP,
         CBAM, ResBlock_CBAM,
         CoordAtt, CrossConv, C3, CTR3, Involution, C3SPP, C3Ghost, CARAFE, nn.ConvTranspose2d, DWConvTranspose2d, C3x,
         SPPCSPC, GhostSPPCSPC, BottleneckCSPA, BottleneckCSPB, BottleneckCSPC,
@@ -297,7 +309,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC, Ghost, GhostCSPA, GhostCSPB, GhostCSPC,
         SwinTransformerBlock, STCSPA, STCSPB, STCSPC,
         SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC,
-        conv_bn_relu_maxpool, Shuffle_Block, RepVGGBlock, CBH, LC_Block, Dense, DWConvblock):
+        conv_bn_relu_maxpool, Shuffle_Block, RepVGGBlock, CBH, LC_Block, Dense, DWConvblock, ShuffleNetV2x, DWConvblockX):
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
@@ -312,11 +324,16 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                      RepResXCSPA, RepResXCSPB, RepResXCSPC,
                      GhostCSPA, GhostCSPB, GhostCSPC,
                      STCSPA, STCSPB, STCSPC,
-                     ST2CSPA, ST2CSPB, ST2CSPC]:
+                     ST2CSPA, ST2CSPB, ST2CSPC, ShuffleNetV2x]:
                 args.insert(2, n)  # number of repeats
                 n = 1
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
+        elif m is nn.MaxPool2d:
+            c2 = args[0]
+            if c2 != no:  # if not output
+                c2 = make_divisible(c2 * gw, 8)
+            args = [*args[1:]]
         elif m is Concat:
             c2 = sum([ch[x] for x in f])
         elif m is ADD:
@@ -348,6 +365,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m in [Detectv6]:
             args.append([ch[x] for x in f])
             args = args[:2]
+        elif m in [DetectFaster]:
+            args.append([ch[x] for x in f])
         elif m is Contract:
             c2 = ch[f] * args[0] ** 2
         elif m is Expand:

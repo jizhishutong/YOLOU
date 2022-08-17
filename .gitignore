@@ -1,0 +1,4 @@
+*.pyc
+runs/train
+wandb/
+weights/
