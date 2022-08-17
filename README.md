@@ -137,7 +137,7 @@ python export.py --weights ./weights/yolov6/yolov6s.pt
 
 #### YOLO-Fastest v2
 
-![YOLOU](./images/yolo-fastest v2.png)
+![YOLOU](./images/yolo-fastest-v2.png)
 
 ## Reference
 
