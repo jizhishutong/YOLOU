@@ -869,45 +869,25 @@ class Shortcut(nn.Module):
         return x[0] + x[1]
 
 
-class ShuffleNetV2(nn.Module):
-    def __init__(self, c1, c2, stride, shuffle_groups=3):  # in, out, stride,shuffle_groups
+class ShuffleNetV2x(nn.Module):
+    def __init__(self, c1, c2, n=1, ksize=3, stride=2):  # in, out, stride,shuffle_groups
         super().__init__()
 
-        self.stride = stride
-        self.shuffle_groups = shuffle_groups
-        branch_features = c2 // 2
-        assert (self.stride != 1) or (c1 == branch_features << 1)
-
-        self.branch1 = nn.Sequential(
-            nn.Conv2d(c1, c1, kernel_size=3, stride=self.stride, padding=1, groups=c1),
-            nn.BatchNorm2d(c1),
-            nn.Conv2d(c1, branch_features, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(branch_features),
-            nn.ReLU(inplace=True)) if self.stride == 2 else nn.Sequential()  # 如果步长是2 ，没有通道split
-
-        self.branch2 = nn.Sequential(
-            nn.Conv2d(c1 if (self.stride == 2) else branch_features, branch_features, kernel_size=1, stride=1,
-                      padding=0, bias=False),
-            nn.BatchNorm2d(branch_features),
-            nn.ReLU(inplace=True),
-
-            nn.Conv2d(branch_features, branch_features, kernel_size=3, stride=self.stride, padding=1,
-                      groups=branch_features),
-            nn.BatchNorm2d(branch_features),
-
-            nn.Conv2d(branch_features, branch_features, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(branch_features),
-            nn.ReLU(inplace=True),
-        )
+        mid_channels = c2 // 2
+        stageSeq = []
+        for i in range(n):
+            if i == 0:
+                stageSeq.append(ShuffleV2Block(c1, c2, 
+                                            mid_channels=mid_channels, ksize=ksize, stride=stride))
+            else:
+                stageSeq.append(ShuffleV2Block(c1 // 2, c2, 
+                                            mid_channels=mid_channels, ksize=ksize, stride=1))
+            c1 = c2
+        self.stage = nn.Sequential(*stageSeq)
 
     def forward(self, x):
-        if self.stride == 1:
-            x1, x2 = x.chunk(2, dim=1)
-            out = torch.cat((x1, self.branch2(x2)), dim=1)
-        else:
-            out = torch.cat((self.branch1(x), self.branch2(x)), dim=1)
-        out = channel_shuffle(out, self.shuffle_groups)
-        return out
+        x = self.stage(x)
+        return x
 
 
 class AutoShape(nn.Module):
@@ -3481,6 +3461,64 @@ class conv_bn_relu_maxpool(nn.Module):
     def forward(self, x):
         return self.maxpool(self.conv(x))
 
+class ShuffleV2Block(nn.Module):
+    def __init__(self, inp, oup, mid_channels, ksize, stride):
+        super(ShuffleV2Block, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+
+        self.mid_channels = mid_channels
+        self.ksize = ksize
+        pad = ksize // 2
+        self.pad = pad
+        self.inp = inp
+
+        outputs = oup - inp
+
+        branch_main = [
+            # pw
+            nn.Conv2d(inp, mid_channels, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(mid_channels),
+            nn.ReLU(inplace=True),
+            # dw
+            nn.Conv2d(mid_channels, mid_channels, ksize, stride, pad, groups=mid_channels, bias=False),
+            nn.BatchNorm2d(mid_channels),
+            # pw-linear
+            nn.Conv2d(mid_channels, outputs, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(outputs),
+            nn.ReLU(inplace=True),
+        ]
+        self.branch_main = nn.Sequential(*branch_main)
+
+        if stride == 2:
+            branch_proj = [
+                # dw
+                nn.Conv2d(inp, inp, ksize, stride, pad, groups=inp, bias=False),
+                nn.BatchNorm2d(inp),
+                # pw-linear
+                nn.Conv2d(inp, inp, 1, 1, 0, bias=False),
+                nn.BatchNorm2d(inp),
+                nn.ReLU(inplace=True),
+            ]
+            self.branch_proj = nn.Sequential(*branch_proj)
+        else:
+            self.branch_proj = None
+
+    def forward(self, old_x):
+        if self.stride==1:
+            x_proj, x = self.channel_shuffle(old_x)
+            return torch.cat((x_proj, self.branch_main(x)), 1)
+        elif self.stride==2:
+            x_proj = old_x
+            x = old_x
+            return torch.cat((self.branch_proj(x_proj), self.branch_main(x)), 1)
+
+    def channel_shuffle(self, x):
+        _, num_channels, _, _ = x.data.size()
+        assert (num_channels % 4 == 0)
+        x1, x2 = x[:, :num_channels//2, :, :], x[:, num_channels//2:, :, :]
+        return x1, x2
+
 
 class Shuffle_Block(nn.Module):
     def __init__(self, inp, oup, stride):
@@ -3924,3 +3962,29 @@ class DWConvblock(nn.Module):
 
 # DWConvblock end
 # -------------------------------------------------------------------------
+
+class DWConvblockX(nn.Module):
+    def __init__(self, input_channels, output_channels, size):
+        super(DWConvblockX, self).__init__()
+        self.size = size
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+
+        self.block =  nn.Sequential(nn.Conv2d(output_channels, output_channels, size, 1, 2, groups = output_channels, bias = False),
+                                    nn.BatchNorm2d(output_channels),
+                                    nn.ReLU(inplace=True),
+      
+                                    nn.Conv2d(output_channels, output_channels, 1, 1, 0, bias = False),
+                                    nn.BatchNorm2d(output_channels),
+                                    
+                                    nn.Conv2d(output_channels, output_channels, size, 1, 2, groups = output_channels, bias = False),
+                                    nn.BatchNorm2d(output_channels ),
+                                    nn.ReLU(inplace=True),
+      
+                                    nn.Conv2d(output_channels, output_channels, 1, 1, 0, bias = False),
+                                    nn.BatchNorm2d(output_channels),
+                                    )
+                                    
+    def forward(self, x):
+        x = self.block(x)
+        return x
