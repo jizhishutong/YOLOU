@@ -135,6 +135,10 @@ python export.py --weights ./weights/yolov6/yolov6s.pt
 
 ![YOLOU](./images/yolox-lite-onnx.png)
 
+#### YOLO-Fastest v2
+
+![YOLOU](./images/yolo-fastest v2.png)
+
 ## Reference
 
 https://github.com/ultralytics/yolov5
