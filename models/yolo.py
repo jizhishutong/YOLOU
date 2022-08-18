@@ -25,6 +25,7 @@ from models.yolov7 import IAuxDetect, IDetect, IBin, Detectv7
 from models.yolox import DetectX
 from models.yolov6 import Detectv6
 from models.yolo_fasterV2 import DetectFaster
+from models.FastestDet import Detect_FastestDet
 
 from utils.autoanchor import check_anchor_order
 from utils.general import LOGGER, check_yaml, make_divisible, print_args
@@ -108,6 +109,8 @@ class Model(nn.Module):
         # if isinstance(m, DetectE):
         #     self.stride = torch.tensor(m.stride)
         #     m._init_weights()     # only run once
+        if isinstance(m, Detect_FastestDet):
+            self.stride = torch.tensor(m.stride)
 
         if isinstance(m, IAuxDetect):
             s = 256  # 2x min stride
@@ -388,7 +391,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='./yolov7/yolov7w6.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='./FastestDet/FastestDet.yaml', help='model.yaml')
     parser.add_argument('--batch-size', type=int, default=1, help='total batch size for all GPUs')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--profile', action='store_true', help='profile model speed')
@@ -401,8 +404,9 @@ if __name__ == '__main__':
     from thop import profile
 
     # Create model
-    im = torch.rand(opt.batch_size, 3, 640, 640).to(device)
+    im = torch.rand(opt.batch_size, 3, 352, 352).to(device)
     model = Model(opt.cfg).to(device)
+    # print(model)
     flops, params = profile(model, inputs=(im,))
     print('FLOPs = ' + str(flops / 1000 ** 3) + 'G')
     print('Params = ' + str(params / 1000 ** 2) + 'M')

@@ -127,7 +127,6 @@ class Detectv6(nn.Module):
                     xy = (y[..., 0:2] + grid) * self.stride[i]  # xy
                     wh = torch.exp(y[..., 2:4]) * self.stride[i]  # wh
                     y = torch.cat((xy, wh, y[..., 4:]), -1)
-                print(bs, '*' * 88)
                 z.append(y.view(bs, ny * nx, self.no))
 
         return x if self.training else (torch.cat(z, 1),)
