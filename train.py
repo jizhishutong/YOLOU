@@ -51,7 +51,11 @@ from utils.general import (LOGGER, check_amp, check_dataset, check_file, check_g
                            labels_to_image_weights, methods, one_cycle, print_args, print_mutation, strip_optimizer)
 from utils.loggers import Loggers
 from utils.loggers.wandb.wandb_utils import check_wandb_resume
+<<<<<<< Updated upstream
 from utils.loss import ComputeLoss, ComputeLossOTA, ComputeLossAuxOTA, ComputeXLoss, Computev6Loss, ComputeFasterV2Loss
+=======
+from utils.loss import ComputeLoss, ComputeLossOTA, ComputeLossAuxOTA, ComputeXLoss, Computev6Loss, FastestDet_Loss
+>>>>>>> Stashed changes
 from utils.metrics import fitness
 from utils.plots import plot_evolve, plot_labels
 from utils.torch_utils import EarlyStopping, ModelEMA, de_parallel, select_device, torch_distributed_zero_first, is_parallel
@@ -70,7 +74,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     # Directories
     w = save_dir / 'weights'  # weights dir
     (w.parent if evolve else w).mkdir(parents=True, exist_ok=True)  # make dir
-    last, best = w / 'last.pt', w / 'yolox-lite-g.pt'
+    last, best = w / 'last.pt', w / 'best.pt'
 
     # Hyperparameters
     if isinstance(hyp, str):
@@ -368,8 +372,13 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         compute_loss = ComputeXLoss(model)
     elif mode == 'yolov6':
         compute_loss = Computev6Loss()
+<<<<<<< Updated upstream
     elif mode == 'yolo-fasterV2':
         compute_loss = ComputeFasterV2Loss(model)
+=======
+    elif mode == 'FastestDet':
+        compute_loss = FastestDet_Loss()
+>>>>>>> Stashed changes
     else:
         compute_loss = None
 
@@ -402,9 +411,6 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             mloss = torch.zeros(4, device=device)  # mean losses
             # iou_loss, obj_loss, cls_loss, l1_loss
             LOGGER.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'l1', 'labels', 'img_size'))
-        elif mode == 'yoloe':
-            mloss = torch.zeros(4, device=device)  # mean losses
-            LOGGER.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'iou', 'cls', 'dfl', 'l1', 'labels', 'img_size'))
         elif mode == 'yolov6':
             mloss = torch.zeros(4, device=device)  # mean losses
             LOGGER.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'iou', 'l1', 'obj', 'cls', 'labels', 'img_size'))
@@ -455,9 +461,13 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     loss, loss_items = compute_loss(pred, targets.to(device))
                 elif mode == 'yolov6':
                     loss, loss_items = compute_loss(pred, targets.to(device))
+<<<<<<< Updated upstream
                 elif mode == 'yoloe':
                     loss, loss_items = compute_loss(pred, targets.to(device), epoch)
                 elif mode == 'yolo-fasterV2':
+=======
+                elif mode == 'FastestDet':
+>>>>>>> Stashed changes
                     loss, loss_items = compute_loss(pred, targets.to(device))
                 else:
                     loss, loss_items = 0, 0
@@ -578,14 +588,22 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
 def parse_opt(known=False):
     parser = argparse.ArgumentParser()
+<<<<<<< Updated upstream
     parser.add_argument('--mode', type=str, default='yolov6', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
                                                                   'yolov7 :[yolov7, ]'
                                                                   'yolox  :[yolox, yolox-lite]'
                                                                   'yolov6  :[yolov6, ]'
                                                                   'yolo-fasterV2')
+=======
+    parser.add_argument('--mode', type=str, default='FastestDet', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
+                                                                   'yolov7  :[yolov7, ]'
+                                                                   'yolox   :[yolox, yolox-lite]'
+                                                                   'yolov6  :[yolov6, ]'
+                                                                   'FastestDet  :[FastestDet, ]')
+>>>>>>> Stashed changes
     parser.add_argument('--use_aux', type=bool, default=False, help='ues aux loss or not')
-    parser.add_argument('--weights', type=str, default=ROOT / 'weights/yolov5s.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default=ROOT / 'models/yolov6/yolov6s.yaml', help='model.yaml path')
+    parser.add_argument('--weights', type=str, default=ROOT / 'weights/FastestDet.pt', help='initial weights path')
+    parser.add_argument('--cfg', type=str, default=ROOT / 'models/FastestDet/FastestDet.yaml', help='model.yaml path')
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')
     parser.add_argument('--hyp', type=str, default=ROOT / 'data/hyps/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=100)
@@ -602,16 +620,20 @@ def parse_opt(known=False):
     parser.add_argument('--cache', type=str, nargs='?', const='ram', help='--cache images in "ram" (default) or "disk"')
     parser.add_argument('--image-weights', action='store_true', help='use weighted image selection for training')
     parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+<<<<<<< Updated upstream
     parser.add_argument('--multi-scale', action='store_true', help='vary img-size +/- 50%%')
+=======
+    parser.add_argument('--multi-scale', default=True, help='vary img-size +/- 50%%')
+>>>>>>> Stashed changes
     parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
-    parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='SGD', help='optimizer')
+    parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='AdamW', help='optimizer')
     parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
     parser.add_argument('--workers', type=int, default=0, help='max dataloader workers (per RANK in DDP mode)')
     parser.add_argument('--project', default=ROOT / 'runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
-    parser.add_argument('--cos-lr', action='store_true', help='cosine LR scheduler')
+    parser.add_argument('--cos-lr', default=True, help='cosine LR scheduler')
     parser.add_argument('--label-smoothing', type=float, default=0.0, help='Label smoothing epsilon')
     parser.add_argument('--patience', type=int, default=100, help='EarlyStopping patience (epochs without improvement)')
     parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone=10, first3=0 1 2')

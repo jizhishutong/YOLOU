@@ -11,6 +11,10 @@ import numpy as np
 
 from utils.general import LOGGER, check_version, colorstr, resample_segments, segment2box
 from utils.metrics import bbox_ioa
+import torchvision.transforms as T
+
+IMAGENET_MEAN = 0.485, 0.456, 0.406  # RGB mean
+IMAGENET_STD = 0.229, 0.224, 0.225  # RGB standard deviation
 
 
 class Albumentations:
@@ -267,6 +271,7 @@ def cutout(im, labels, p=0.5):
 
     return labels
 
+
 def sample_segments(img, labels, segments, probability=0.5):
     # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
     n = len(segments)
@@ -357,7 +362,6 @@ def pastein(image, labels, sample_labels, sample_images, sample_masks):
     return labels
 
 
-
 def mixup(im, labels, im2, labels2):
     # Applies MixUp augmentation https://arxiv.org/pdf/1710.09412.pdf
     r = np.random.beta(32.0, 32.0)  # mixup ratio, alpha=beta=32.0
@@ -372,3 +376,56 @@ def box_candidates(box1, box2, wh_thr=2, ar_thr=100, area_thr=0.1, eps=1e-16):  
     w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
     ar = np.maximum(w2 / (h2 + eps), h2 / (w2 + eps))  # aspect ratio
     return (w2 > wh_thr) & (h2 > wh_thr) & (w2 * h2 / (w1 * h1 + eps) > area_thr) & (ar < ar_thr)  # candidates
+
+
+def denormalize(x, mean=IMAGENET_MEAN, std=IMAGENET_STD):
+    # Denormalize RGB images x per ImageNet stats in BCHW format, i.e. = x * std + mean
+    for i in range(3):
+        x[:, i] = x[:, i] * std[i] + mean[i]
+    return x
+
+
+def classify_albumentations(augment=True,
+                            size=224,
+                            scale=(0.08, 1.0),
+                            hflip=0.5,
+                            vflip=0.0,
+                            jitter=0.4,
+                            mean=IMAGENET_MEAN,
+                            std=IMAGENET_STD,
+                            auto_aug=False):
+    # YOLOv5 classification Albumentations (optional, only used if package is installed)
+    prefix = colorstr('albumentations: ')
+    try:
+        import albumentations as A
+        from albumentations.pytorch import ToTensorV2
+        check_version(A.__version__, '1.0.3', hard=True)  # version requirement
+        if augment:  # Resize and crop
+            T = [A.RandomResizedCrop(height=size, width=size, scale=scale)]
+            if auto_aug:
+                # TODO: implement AugMix, AutoAug & RandAug in albumentation
+                LOGGER.info(f'{prefix}auto augmentations are currently not supported')
+            else:
+                if hflip > 0:
+                    T += [A.HorizontalFlip(p=hflip)]
+                if vflip > 0:
+                    T += [A.VerticalFlip(p=vflip)]
+                if jitter > 0:
+                    color_jitter = (float(jitter),) * 3  # repeat value for brightness, contrast, satuaration, 0 hue
+                    T += [A.ColorJitter(*color_jitter, 0)]
+        else:  # Use fixed crop for eval set (reproducibility)
+            T = [A.SmallestMaxSize(max_size=size), A.CenterCrop(height=size, width=size)]
+        T += [A.Normalize(mean=mean, std=std), ToTensorV2()]  # Normalize and convert to Tensor
+        LOGGER.info(prefix + ', '.join(f'{x}'.replace('always_apply=False, ', '') for x in T if x.p))
+        return A.Compose(T)
+
+    except ImportError:  # package not installed, skip
+        pass
+    except Exception as e:
+        LOGGER.info(f'{prefix}{e}')
+
+
+def classify_transforms(size=224):
+    # Transforms to apply if albumentations not installed
+    return T.Compose([T.ToTensor(), T.Resize(size), T.CenterCrop(size), T.Normalize(IMAGENET_MEAN, IMAGENET_STD)])
+

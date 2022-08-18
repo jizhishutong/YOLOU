@@ -78,6 +78,8 @@ def process_batch(detections, labels, iouv):
         correct (Array[N, 10]), for 10 IoU levels
     """
     correct = np.zeros((detections.shape[0], iouv.shape[0])).astype(bool)
+    # device = detections.device
+    # labels = labels.to(device)
     iou = box_iou(labels[:, 1:], detections[:, :4])
     correct_class = labels[:, 0:1] == detections[:, 5]
     for i in range(len(iouv)):
@@ -87,7 +89,6 @@ def process_batch(detections, labels, iouv):
             if x[0].shape[0] > 1:
                 matches = matches[matches[:, 2].argsort()[::-1]]
                 matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-                # matches = matches[matches[:, 2].argsort()[::-1]]
                 matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
             correct[matches[:, 1].astype(int), i] = True
     return torch.tensor(correct, dtype=torch.bool, device=iouv.device)
@@ -251,6 +252,7 @@ def run(
                 tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
                 scale_coords(im[si].shape[1:], tbox, shape, shapes[si][1])  # native-space labels
                 labelsn = torch.cat((labels[:, 0:1], tbox), 1)  # native-space labels
+                predn = predn.to(device)
                 correct = process_batch(predn, labelsn, iouv)
                 if plots:
                     confusion_matrix.process_batch(predn, labelsn)
