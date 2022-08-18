@@ -6,7 +6,7 @@
 
 ​	Here "U" means United, mainly to gather more algorithms about the YOLO series through this project, so that friends can better learn the knowledge of object detection. At the same time, in order to better apply AI technology, YOLOU will also join The corresponding Deploy technology will accelerate the implementation of the algorithms we have learned and realize the value.
 
-![YOLOU](./images/YOLOU.png)
+![YOLOU](./images/YOLOU2.png)
 
 At present, the YOLO series algorithms mainly included in YOLOU are:
 
