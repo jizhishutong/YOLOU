@@ -583,11 +583,6 @@ def parse_opt(known=False):
                                                                   'yolox  :[yolox, yolox-lite]'
                                                                   'yolov6  :[yolov6, ]'
                                                                   'yolo-fasterV2')
-    parser.add_argument('--mode', type=str, default='FastestDet', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
-                                                                   'yolov7  :[yolov7, ]'
-                                                                   'yolox   :[yolox, yolox-lite]'
-                                                                   'yolov6  :[yolov6, ]'
-                                                                   'FastestDet  :[FastestDet, ]')
     parser.add_argument('--use_aux', type=bool, default=False, help='ues aux loss or not')
     parser.add_argument('--weights', type=str, default=ROOT / 'weights/FastestDet.pt', help='initial weights path')
     parser.add_argument('--cfg', type=str, default=ROOT / 'models/FastestDet/FastestDet.yaml', help='model.yaml path')
