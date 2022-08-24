@@ -300,15 +300,20 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in (Conv, SimConv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv,
-                 BottleneckCSP, CBAM, ResBlock_CBAM, CoordAtt, CrossConv, C3, CTR3, Involution, C3SPP, C3Ghost, CARAFE,
-                 nn.ConvTranspose2d, DWConvTranspose2d, C3x, SPPCSPC, GhostSPPCSPC, BottleneckCSPA, BottleneckCSPB,
-                 BottleneckCSPC, RepConv, RepConv_OREPA, RepBottleneck, RepBottleneckCSPA, RepBottleneckCSPB,
-                 RepBottleneckCSPC, Res, ResCSPA, ResCSPB, ResCSPC, RepRes, RepResCSPA, RepResCSPB, RepResCSPC, ResX,
-                 ResXCSPA, ResXCSPB, ResXCSPC, RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC, Ghost, GhostCSPA,
-                 GhostCSPB, GhostCSPC, SwinTransformerBlock, STCSPA, STCSPB, STCSPC, SwinTransformer2Block, ST2CSPA,
-                 ST2CSPB, ST2CSPC, conv_bn_relu_maxpool, Shuffle_Block, RepVGGBlock, CBH, LC_Block, Dense, DWConvblock,
-                 ShuffleNetV2x, DWConvblockX):
+
+        if m in (
+        Conv, SimConv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP,
+        CBAM, ResBlock_CBAM,
+        CoordAtt, CrossConv, C3, CTR3, Involution, C3SPP, C3Ghost, CARAFE, nn.ConvTranspose2d, DWConvTranspose2d, C3x,
+        SPPCSPC, GhostSPPCSPC, BottleneckCSPA, BottleneckCSPB, BottleneckCSPC,
+        RepConv, RepConv_OREPA, RepBottleneck, RepBottleneckCSPA, RepBottleneckCSPB, RepBottleneckCSPC,
+        Res, ResCSPA, ResCSPB, ResCSPC,
+        RepRes, RepResCSPA, RepResCSPB, RepResCSPC,
+        ResX, ResXCSPA, ResXCSPB, ResXCSPC,
+        RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC, Ghost, GhostCSPA, GhostCSPB, GhostCSPC,
+        SwinTransformerBlock, STCSPA, STCSPB, STCSPC,
+        SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC,
+        conv_bn_relu_maxpool, Shuffle_Block, RepVGGBlock, CBH, LC_Block, Dense, DWConvblock, ShuffleNetV2x, DWConvblockX, space_to_depth):
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
