@@ -1,0 +1,10 @@
+train: /home/ici/kkDocuments/VOCdevkit/WIDER_FACE/train.txt  # 118287 images
+val: /home/ici/kkDocuments/VOCdevkit/WIDER_FACE/val.txt  # 5000 images
+# test: /home/ici/kkDocuments/VOCdevkit/WIDER_FACE/val.txt  # 20288 of 40670 images, submit to https://competitions.codalab.org/competitions/20794
+
+# number of classes
+nc: 1
+
+# class names
+names: [ 'face' ]
+

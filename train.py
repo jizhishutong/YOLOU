@@ -52,7 +52,7 @@ from utils.general import (LOGGER, check_amp, check_dataset, check_file, check_g
 from utils.loggers import Loggers
 from utils.loggers.wandb.wandb_utils import check_wandb_resume
 from utils.loss import ComputeLoss, ComputeLossOTA, ComputeLossAuxOTA, ComputeXLoss, Computev6Loss, ComputeFasterV2Loss
-from utils.loss import ComputeLoss, ComputeLossOTA, ComputeLossAuxOTA, ComputeXLoss, Computev6Loss, FastestDet_Loss
+from utils.loss import ComputeLoss, ComputeLossOTA, ComputeLossAuxOTA, ComputeXLoss, Computev6Loss, FastestDet_Loss, ComputeFaceV2Loss
 from utils.metrics import fitness
 from utils.plots import plot_evolve, plot_labels
 from utils.torch_utils import EarlyStopping, ModelEMA, de_parallel, select_device, torch_distributed_zero_first, is_parallel
@@ -373,6 +373,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         compute_loss = ComputeFasterV2Loss(model)
     elif mode == 'FastestDet':
         compute_loss = FastestDet_Loss()
+    elif mode == 'yolofacev2':
+        compute_loss = ComputeFaceV2Loss(model)
     else:
         compute_loss = None
 
@@ -389,6 +391,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         detect = model.model[-1]
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run('on_train_epoch_start')
+        if mode == "yolofacev2":
+            if epoch == 50:
+                for k, v in model.named_parameters():
+                    v.requires_grad = True
         model.train()
 
         # Update image weights (optional, single-GPU only)
@@ -408,6 +414,9 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         elif mode == 'yolov6':
             mloss = torch.zeros(4, device=device)  # mean losses
             LOGGER.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'iou', 'l1', 'obj', 'cls', 'labels', 'img_size'))
+        elif mode == 'yolofacev2':
+            mloss = torch.zeros(5, device=device)  # mean losses
+            LOGGER.info(('\n' + '%10s' * 9) % ('Epoch', 'gpu_mem', 'iou', 'l1', 'obj', 'cls', 'rep', 'labels', 'img_size'))
         else:
             mloss = torch.zeros(3, device=device)  # mean losses
             LOGGER.info(('\n' + '%10s' * 7) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'labels', 'img_size'))
@@ -458,6 +467,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 elif mode == 'yolo-fasterV2':
                     loss, loss_items = compute_loss(pred, targets.to(device))
                 elif mode == 'FastestDet':
+                    loss, loss_items = compute_loss(pred, targets.to(device))
+                elif mode == 'yolofacev2':
                     loss, loss_items = compute_loss(pred, targets.to(device))
                 else:
                     loss, loss_items = 0, 0
@@ -511,13 +522,16 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                            plots=False,
                                            callbacks=callbacks,
                                            compute_loss=compute_loss,
-                                           half=not opt.swin_float)
+                                           half=not opt.swin_float,
+                                           mode=mode)
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
             if fi > best_fitness:
                 best_fitness = fi
             log_vals = list(mloss[:3]) + list(results) + lr
+            if mode == "yolofacev2":
+                del log_vals[-4]
             callbacks.run('on_fit_epoch_end', log_vals, epoch, best_fitness, fi)
 
             # Save model
@@ -566,7 +580,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                             plots=True,
                                             callbacks=callbacks,
                                             compute_loss=compute_loss,
-                                            half=not opt.swin_float)  # val best model with plots
+                                            half=not opt.swin_float,
+                                            mode=mode)  # val best model with plots
                     if is_coco:
                         callbacks.run('on_fit_epoch_end', list(mloss) + list(results) + lr, epoch, best_fitness, fi)
 
@@ -578,11 +593,12 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
 def parse_opt(known=False):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='yolov6', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
+    parser.add_argument('--mode', type=str, default='yolofacev2', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
                                                                   'yolov7 :[yolov7, ]'
                                                                   'yolox  :[yolox, yolox-lite]'
                                                                   'yolov6  :[yolov6, ]'
-                                                                  'yolo-fasterV2')
+                                                                  'yolo-fasterV2'
+                                                                  'yolofacev2: [yolofacev2,]')
     parser.add_argument('--use_aux', type=bool, default=False, help='ues aux loss or not')
     parser.add_argument('--weights', type=str, default=ROOT / 'weights/FastestDet.pt', help='initial weights path')
     parser.add_argument('--cfg', type=str, default=ROOT / 'models/FastestDet/FastestDet.yaml', help='model.yaml path')
@@ -602,7 +618,6 @@ def parse_opt(known=False):
     parser.add_argument('--cache', type=str, nargs='?', const='ram', help='--cache images in "ram" (default) or "disk"')
     parser.add_argument('--image-weights', action='store_true', help='use weighted image selection for training')
     parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--multi-scale', action='store_true', help='vary img-size +/- 50%%')
     parser.add_argument('--multi-scale', default=True, help='vary img-size +/- 50%%')
     parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
     parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='AdamW', help='optimizer')
