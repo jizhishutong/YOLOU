@@ -24,6 +24,7 @@ from models.yolov5 import Detect, Decoupled_Detect, ASFF_Detect
 from models.yolov7 import IAuxDetect, IDetect, IBin, Detectv7
 from models.yolox import DetectX
 from models.yolov6 import Detectv6
+from models.yolofacev2 import DetectFaceV2
 from models.yolo_fasterV2 import DetectFaster
 from models.FastestDet import Detect_FastestDet
 
@@ -64,7 +65,7 @@ class Model(nn.Module):
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
-        if isinstance(m, Detect) or isinstance(m, ASFF_Detect) or isinstance(m, Decoupled_Detect):
+        if isinstance(m, Detect) or isinstance(m, ASFF_Detect) or isinstance(m, Decoupled_Detect) or isinstance(m, DetectFaceV2):
             s = 256  # 2x min stride
             m.inplace = self.inplace
             m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
@@ -194,7 +195,7 @@ class Model(nn.Module):
 
     def _profile_one_layer(self, m, x, dt):
         c = isinstance(m, Detect) or isinstance(m, ASFF_Detect) or isinstance(m,
-                                                                              Decoupled_Detect)  # is final layer, copy input as inplace fix
+                                                                              Decoupled_Detect) or isinstance(m, DetectFaceV2)  # is final layer, copy input as inplace fix
         o = thop.profile(m, inputs=(x.copy() if c else x,), verbose=False)[0] / 1E9 * 2 if thop else 0  # FLOPs
         t = time_sync()
         for _ in range(10):
@@ -313,7 +314,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         RepResX, RepResXCSPA, RepResXCSPB, RepResXCSPC, Ghost, GhostCSPA, GhostCSPB, GhostCSPC,
         SwinTransformerBlock, STCSPA, STCSPB, STCSPC,
         SwinTransformer2Block, ST2CSPA, ST2CSPB, ST2CSPC,
-        conv_bn_relu_maxpool, Shuffle_Block, RepVGGBlock, CBH, LC_Block, Dense, DWConvblock, ShuffleNetV2x, DWConvblockX, space_to_depth):
+        conv_bn_relu_maxpool, Shuffle_Block, RepVGGBlock, CBH, LC_Block, Dense, DWConvblock, ShuffleNetV2x, DWConvblockX, space_to_depth,
+        SEAM, RFEM, C3RFEM, ConvMixer, MultiSEAM):
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
