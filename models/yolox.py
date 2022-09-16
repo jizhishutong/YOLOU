@@ -165,13 +165,16 @@ class DetectX(nn.Module):
             return outputs
         else:
             if self.export:
+                # self.hw = [torch.tensor([80, 80]),
+                #            torch.tensor([40, 40]),
+                #            torch.tensor([20, 20])]
                 bs = -1
                 no = outputs[0].shape[1]
             else:
                 bs, no = outputs[0].shape[0], outputs[0].shape[1]
 
             self.hw = [out.shape[-2:] for out in outputs]
-
+            
             # [batch, n_anchors_all, 85]
             outs = []
             for i in range(len(outputs)):

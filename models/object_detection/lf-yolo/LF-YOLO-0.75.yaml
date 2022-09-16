@@ -1,0 +1,57 @@
+# parameters
+nc: 80  # number of classes
+depth_multiple: 1.0  # model depth multiple
+width_multiple: 1.0  # layer channel multiple
+
+# anchors
+anchors:
+  - [10,13, 16,30, 33,23]  # P3/8
+  - [30,61, 62,45, 59,119]  # P4/16
+  - [116,90, 156,198, 373,326]  # P5/32
+
+# darknet53 backbone
+backbone:
+  # [from, number, module, args]
+  [[-1, 1, Conv, [16, 3, 1]],  # 0
+   [-1, 1, nn.MaxPool2d, [3, 2, 1]],
+   [-1, 1, EFE, [24, 1, 1]],
+   [-1, 1, nn.MaxPool2d, [3, 2, 1]],
+   [-1, 1, EFE, [48, 1, 1]],
+   [-1, 1, EFE, [48, 1, 1]],
+   [-1, 1, nn.MaxPool2d, [3, 2, 1]],
+   [-1, 1, EFE, [96, 1, 1]],
+   [-1, 1, EFE, [96, 1, 1]],
+   [-1, 1, EFE, [96, 1, 1]],
+   [-1, 1, EFE, [96, 1, 1]], # 10
+   [-1, 1, nn.MaxPool2d, [3, 2, 1]],
+   [-1, 1, EFE, [192, 1, 1]],
+   [-1, 1, EFE, [192, 1, 1]],
+   [-1, 1, EFE, [192, 1, 1]],
+   [-1, 1, EFE, [192, 1, 1]], # 15
+   [-1, 1, nn.MaxPool2d, [3, 2, 1]],
+   [-1, 1, EFE, [384, 1, 1]],
+   [-1, 1, EFE, [384, 1, 1]], # 18
+  ]
+
+# YOLOv3-SPP head
+head:
+  [[-1, 1, RMF, [2304]],
+   [-1, 1, Conv, [384, 1, 1]],
+   [-1, 1, GhostModule, [768]],
+   [-1, 1, Conv, [192, 1, 1]], # 22 (P5/32-large)
+
+   [-4, 1, Conv, [192, 1, 1]],
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [[-1, 15], 1, Concat, [1]],  # cat backbone P4
+   [-1, 1, Conv, [192, 1, 1]],
+   [-1, 1, GhostModule, [384]],
+   [-1, 1, Conv, [192, 1, 1]], # 28 (P4/16-medium)
+
+   [-4, 1, Conv, [96, 1, 1]],
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [[-1, 10], 1, Concat, [1]],  # cat backbone P3
+   [-1, 1, Conv, [96, 1, 1]],
+   [-1, 1, GhostModule, [192]],
+   [-1, 1, Conv, [192, 1, 1]], # 34 (P3/8-small)
+   [[34, 28, 22], 1, Detect_LF, [nc, anchors]],   # Detect(P3, P4, P5)
+  ]

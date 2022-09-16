@@ -40,7 +40,7 @@ if str(ROOT) not in sys.path:
 # ROOT = ROOT.relative_to(Path.cwd())  # relative
 
 import export
-import val
+import val_det
 from utils import notebook_init
 from utils.general import LOGGER, check_yaml, print_args
 from utils.torch_utils import select_device
@@ -76,7 +76,7 @@ def run(
             assert suffix in str(w), 'export failed'
             
             # Validate
-            result = val.run(data, w, batch_size, imgsz, plots=False, device=device, task='benchmark', half=half)
+            result = val_det.run(data, w, batch_size, imgsz, plots=False, device=device, task='benchmark', half=half)
             metrics = result[0]  # metrics (mp, mr, map50, map, *losses(box, obj, cls))
             speeds = result[2]  # times (preprocess, inference, postprocess)
             y.append([name, round(file_size(w), 1), round(metrics[3], 4), round(speeds[1], 2)])  # MB, mAP, t_inference

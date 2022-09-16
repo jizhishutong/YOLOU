@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-# from utils.general import box_iou
+from utils.general import box_iou
 
 # reference: https://github.com/dongdonghy/repulsion_loss_pytorch/blob/master/repulsion_loss.py
 def IoG(gt_box, pre_box):
@@ -73,32 +73,3 @@ def repulsion_loss_torch(pbox, gtbox, deta=0.5, pnms=0.1, gtnms=0.1, x1x2y1y2=Fa
     torch.cuda.empty_cache()
 
     return repgt_loss, repbox_loss
-
-def box_iou(box1, box2, x1y1x2y2=True):
-    # https://github.com/pytorch/vision/blob/master/torchvision/ops/boxes.py
-    """
-    Return intersection-over-union (Jaccard index) of boxes.
-    Both sets of boxes are expected to be in (x1, y1, x2, y2) format.
-    Arguments:
-        box1 (Tensor[N, 4])
-        box2 (Tensor[M, 4])
-    Returns:
-        iou (Tensor[N, M]): the NxM matrix containing the pairwise
-            IoU values for every element in boxes1 and boxes2
-    """
-
-    def box_area(box, x1y1x2y2=True):
-        # box = 4xn
-        if x1y1x2y2:
-            return (box[2] - box[0]) * (box[3] - box[1])
-        else:
-            b_x1, b_x2 = box[0] - box[2] / 2, box[0] + box[2] / 2
-            b_y1, b_y2 = box[1] - box[3] / 2, box[1] + box[3] / 2
-            return (b_x2 - b_x1) * (b_y2 - b_y1)
-    area1 = box_area(box1.T, x1y1x2y2)
-    area2 = box_area(box2.T, x1y1x2y2)
-
-    # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
-    inter = (torch.min(box1[:, None, 2:], box2[:, 2:]) - torch.max(box1[:, None, :2], box2[:, :2])).clamp(0).prod(2)
-    return inter / (area1[:, None] + area2 - inter)  # iou = inter / (area1 + area2 - inter)
-

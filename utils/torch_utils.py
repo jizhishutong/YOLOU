@@ -16,13 +16,12 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
-from utils.general import LOGGER, file_date, git_describe, check_version, colorstr
+import torchvision
 
-LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
-RANK = int(os.getenv('RANK', -1))
-WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
+from utils.general import LOGGER, file_date, git_describe, check_version, colorstr
 
 try:
     import thop  # for FLOPs computation
@@ -31,26 +30,16 @@ except ImportError:
 
 # Suppress PyTorch warnings
 warnings.filterwarnings('ignore', message='User provided device_type of \'cuda\', but CUDA is not available. Disabling')
+LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
+RANK = int(os.getenv('RANK', -1))
+WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 
 
-@contextmanager
-def torch_distributed_zero_first(local_rank: int):
-    # Decorator to make all processes in distributed training wait for each local_master to do something
-    if local_rank not in [-1, 0]:
-        dist.barrier(device_ids=[local_rank])
-    yield
-    if local_rank == 0:
-        dist.barrier(device_ids=[0])
-
-
-def device_count():
-    # Returns number of CUDA devices available. Safe version of torch.cuda.device_count(). Supports Linux and Windows
-    assert platform.system() in ('Linux', 'Windows'), 'device_count() only supported on Linux or Windows'
-    try:
-        cmd = 'nvidia-smi -L | wc -l' if platform.system() == 'Linux' else 'nvidia-smi -L | find /c /v ""'  # Windows
-        return int(subprocess.run(cmd, shell=True, capture_output=True, check=True).stdout.decode().split()[-1])
-    except Exception:
-        return 0
+def time_synchronized():
+    # pytorch-accurate time
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    return time.time()
 
 
 def smart_inference_mode(torch_1_9=check_version(torch.__version__, '1.9.0')):
@@ -64,11 +53,21 @@ def smart_inference_mode(torch_1_9=check_version(torch.__version__, '1.9.0')):
 def smartCrossEntropyLoss(label_smoothing=0.0):
     # Returns nn.CrossEntropyLoss with label smoothing enabled for torch>=1.10.0
     if check_version(torch.__version__, '1.10.0'):
-        return nn.CrossEntropyLoss(label_smoothing=label_smoothing)  # loss function
+        return nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    if label_smoothing > 0:
+        LOGGER.warning(f'WARNING: label smoothing {label_smoothing} requires torch>=1.10.0')
+    return nn.CrossEntropyLoss()
+
+
+def smart_DDP(model):
+    # Model DDP creation with checks
+    assert not check_version(torch.__version__, '1.12.0', pinned=True), \
+        'torch==1.12.0 torchvision==0.13.0 DDP training is not supported due to a known issue. ' \
+        'Please upgrade or downgrade torch to use DDP. See https://github.com/ultralytics/yolov5/issues/8395'
+    if check_version(torch.__version__, '1.11.0'):
+        return DDP(model, device_ids=[LOCAL_RANK], output_device=LOCAL_RANK, static_graph=True)
     else:
-        if label_smoothing > 0:
-            LOGGER.warning(f'WARNING: label smoothing {label_smoothing} requires torch>=1.10.0')
-        return nn.CrossEntropyLoss()  # loss function
+        return DDP(model, device_ids=[LOCAL_RANK], output_device=LOCAL_RANK)
 
 
 def smart_optimizer(model, name='Adam', lr=0.001, momentum=0.9, decay=1e-5):
@@ -101,37 +100,56 @@ def smart_optimizer(model, name='Adam', lr=0.001, momentum=0.9, decay=1e-5):
     return optimizer
 
 
-def smart_DDP(model):
-    # Model DDP creation with checks
-    assert not check_version(torch.__version__, '1.12.0', pinned=True), \
-        'torch==1.12.0 torchvision==0.13.0 DDP training is not supported due to a known issue. ' \
-        'Please upgrade or downgrade torch to use DDP. See https://github.com/ultralytics/yolov5/issues/8395'
-    if check_version(torch.__version__, '1.11.0'):
-        return DDP(model, device_ids=[LOCAL_RANK], output_device=LOCAL_RANK, static_graph=True)
-    else:
-        return DDP(model, device_ids=[LOCAL_RANK], output_device=LOCAL_RANK)
+def smart_hub_load(repo='ultralytics/yolov5', model='yolov5s', **kwargs):
+    # YOLOv5 torch.hub.load() wrapper with smart error/issue handling
+    if check_version(torch.__version__, '1.9.1'):
+        kwargs['skip_validation'] = True  # validation causes GitHub API rate limit errors
+    if check_version(torch.__version__, '1.12.0'):
+        kwargs['trust_repo'] = True  # argument required starting in torch 0.12
+    try:
+        return torch.hub.load(repo, model, **kwargs)
+    except Exception:
+        return torch.hub.load(repo, model, force_reload=True, **kwargs)
 
 
-def reshape_classifier_output(model, n=1000):
-    # Update a TorchVision classification model to class count 'n' if required
-    from models.common import Classify
-    name, m = list((model.model if hasattr(model, 'model') else model).named_children())[-1]  # last module
-    if isinstance(m, Classify):  # YOLOv5 Classify() head
-        if m.linear.out_features != n:
-            m.linear = nn.Linear(m.linear.in_features, n)
-    elif isinstance(m, nn.Linear):  # ResNet, EfficientNet
-        if m.out_features != n:
-            setattr(model, name, nn.Linear(m.in_features, n))
-    elif isinstance(m, nn.Sequential):
-        types = [type(x) for x in m]
-        if nn.Linear in types:
-            i = types.index(nn.Linear)  # nn.Linear index
-            if m[i].out_features != n:
-                m[i] = nn.Linear(m[i].in_features, n)
-        elif nn.Conv2d in types:
-            i = types.index(nn.Conv2d)  # nn.Conv2d index
-            if m[i].out_channels != n:
-                m[i] = nn.Conv2d(m[i].in_channels, n, m[i].kernel_size, m[i].stride, bias=m[i].bias)
+def smart_resume(ckpt, optimizer, ema=None, weights='yolov5s.pt', epochs=300, resume=True):
+    # Resume training from a partially trained checkpoint
+    best_fitness = 0.0
+    start_epoch = ckpt['epoch'] + 1
+    if ckpt['optimizer'] is not None:
+        optimizer.load_state_dict(ckpt['optimizer'])  # optimizer
+        best_fitness = ckpt['best_fitness']
+    if ema and ckpt.get('ema'):
+        ema.ema.load_state_dict(ckpt['ema'].float().state_dict())  # EMA
+        ema.updates = ckpt['updates']
+    if resume:
+        assert start_epoch > 0, f'{weights} training to {epochs} epochs is finished, nothing to resume.\n' \
+                                f"Start a new training without --resume, i.e. 'python train.py --weights {weights}'"
+        LOGGER.info(f'Resuming training from {weights} from epoch {start_epoch} to {epochs} total epochs')
+    if epochs < start_epoch:
+        LOGGER.info(f"{weights} has been trained for {ckpt['epoch']} epochs. Fine-tuning for {epochs} more epochs.")
+        epochs += ckpt['epoch']  # finetune additional epochs
+    return best_fitness, start_epoch, epochs
+
+
+@contextmanager
+def torch_distributed_zero_first(local_rank: int):
+    # Decorator to make all processes in distributed training wait for each local_master to do something
+    if local_rank not in [-1, 0]:
+        dist.barrier(device_ids=[local_rank])
+    yield
+    if local_rank == 0:
+        dist.barrier(device_ids=[0])
+
+
+def device_count():
+    # Returns number of CUDA devices available. Safe version of torch.cuda.device_count(). Supports Linux and Windows
+    assert platform.system() in ('Linux', 'Windows'), 'device_count() only supported on Linux or Windows'
+    try:
+        cmd = 'nvidia-smi -L | wc -l' if platform.system() == 'Linux' else 'nvidia-smi -L | find /c /v ""'  # Windows
+        return int(subprocess.run(cmd, shell=True, capture_output=True, check=True).stdout.decode().split()[-1])
+    except Exception:
+        return 0
 
 
 def select_device(device='', batch_size=0, newline=True):
@@ -322,6 +340,25 @@ def model_info(model, verbose=False, img_size=640):
     LOGGER.info(f"{name} summary: {len(list(model.modules()))} layers, {n_p} parameters, {n_g} gradients{fs}")
 
 
+def load_classifier(name='resnet101', n=2):
+    # Loads a pretrained model reshaped to n-class output
+    model = torchvision.models.__dict__[name](pretrained=True)
+
+    # ResNet model properties
+    # input_size = [3, 224, 224]
+    # input_space = 'RGB'
+    # input_range = [0, 1]
+    # mean = [0.485, 0.456, 0.406]
+    # std = [0.229, 0.224, 0.225]
+
+    # Reshape output to n classes
+    filters = model.fc.weight.shape[1]
+    model.fc.bias = nn.Parameter(torch.zeros(n), requires_grad=True)
+    model.fc.weight = nn.Parameter(torch.zeros(n, filters), requires_grad=True)
+    model.fc.out_features = n
+    return model
+
+
 def scale_img(img, ratio=1.0, same_shape=False, gs=32):  # img(16,3,256,416)
     # Scales img(bs,3,y,x) by ratio constrained to gs-multiple
     if ratio == 1.0:
@@ -398,6 +435,7 @@ class ModelEMA:
         # Update EMA attributes
         copy_attr(self.ema, model, include, exclude)
 
+
 class BatchNormXd(torch.nn.modules.batchnorm._BatchNorm):
     def _check_input_dim(self, input):
         # The only difference between BatchNorm1d, BatchNorm2d, BatchNorm3d, etc
@@ -410,6 +448,7 @@ class BatchNormXd(torch.nn.modules.batchnorm._BatchNorm):
         #  we could return the one that was originally created)
         return
 
+
 def revert_sync_batchnorm(module):
     # this is very similar to the function that it is trying to revert:
     # https://github.com/pytorch/pytorch/blob/c8b3686a3e4ba63dc59e5dcfe5db3430df256833/torch/nn/modules/batchnorm.py#L679
@@ -417,9 +456,9 @@ def revert_sync_batchnorm(module):
     if isinstance(module, torch.nn.modules.batchnorm.SyncBatchNorm):
         new_cls = BatchNormXd
         module_output = BatchNormXd(module.num_features,
-                                               module.eps, module.momentum,
-                                               module.affine,
-                                               module.track_running_stats)
+                                    module.eps, module.momentum,
+                                    module.affine,
+                                    module.track_running_stats)
         if module.affine:
             with torch.no_grad():
                 module_output.weight = module.weight
@@ -437,10 +476,10 @@ def revert_sync_batchnorm(module):
 
 class TracedModel(nn.Module):
 
-    def __init__(self, model=None, device=None, img_size=(640,640)): 
+    def __init__(self, model=None, device=None, img_size=(640, 640)):
         super(TracedModel, self).__init__()
-        
-        print(" Convert model to Traced-model... ") 
+
+        print(" Convert model to Traced-model... ")
         self.stride = model.stride
         self.names = model.names
         self.model = model
@@ -451,19 +490,55 @@ class TracedModel(nn.Module):
 
         self.detect_layer = self.model.model[-1]
         self.model.traced = True
-        
+
         rand_example = torch.rand(1, 3, img_size, img_size)
-        
+
         traced_script_module = torch.jit.trace(self.model, rand_example, strict=False)
-        #traced_script_module = torch.jit.script(self.model)
+        # traced_script_module = torch.jit.script(self.model)
         traced_script_module.save("traced_model.pt")
         print(" traced_script_module saved! ")
         self.model = traced_script_module
         self.model.to(device)
         self.detect_layer.to(device)
-        print(" model is traced! \n") 
+        print(" model is traced! \n")
 
     def forward(self, x, augment=False, profile=False):
         out = self.model(x)
         out = self.detect_layer(out)
-        return 
+        return out
+
+
+def intersect_dicts(da, db, exclude=()):
+    # Dictionary intersection of matching keys and shapes, omitting 'exclude' keys, using da values
+    return {k: v for k, v in da.items() if k in db and not any(x in k for x in exclude) and v.shape == db[k].shape}
+
+
+def reshape_classifier_output(model, n=1000):
+    # Update a TorchVision classification model to class count 'n' if required
+    from models.common import Classify
+    name, m = list((model.model if hasattr(model, 'model') else model).named_children())[-1]  # last module
+    if isinstance(m, Classify):  # YOLOv5 Classify() head
+        if m.linear.out_features != n:
+            m.linear = nn.Linear(m.linear.in_features, n)
+    elif isinstance(m, nn.Linear):  # ResNet, EfficientNet
+        if m.out_features != n:
+            setattr(model, name, nn.Linear(m.in_features, n))
+    elif isinstance(m, nn.Sequential):
+        types = [type(x) for x in m]
+        if nn.Linear in types:
+            i = types.index(nn.Linear)  # nn.Linear index
+            if m[i].out_features != n:
+                m[i] = nn.Linear(m[i].in_features, n)
+        elif nn.Conv2d in types:
+            i = types.index(nn.Conv2d)  # nn.Conv2d index
+            if m[i].out_channels != n:
+                m[i] = nn.Conv2d(m[i].in_channels, n, m[i].kernel_size, m[i].stride, bias=m[i].bias)
+
+
+def init_torch_seeds(seed=0):
+    # Speed-reproducibility tradeoff https://pytorch.org/docs/stable/notes/randomness.html
+    torch.manual_seed(seed)
+    if seed == 0:  # slower, more reproducible
+        cudnn.benchmark, cudnn.deterministic = False, True
+    else:  # faster, less reproducible
+        cudnn.benchmark, cudnn.deterministic = True, False

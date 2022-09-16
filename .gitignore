@@ -1,4 +1,4 @@
 *.pyc
-runs/train
-wandb/
+coco128/
+runs/
 weights/

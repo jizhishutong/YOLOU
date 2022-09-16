@@ -8,13 +8,27 @@ import random
 
 import cv2
 import numpy as np
+import torch
+import torchvision.transforms as T
+import torchvision.transforms.functional as TF
 
 from utils.general import LOGGER, check_version, colorstr, resample_segments, segment2box
 from utils.metrics import bbox_ioa
-import torchvision.transforms as T
 
 IMAGENET_MEAN = 0.485, 0.456, 0.406  # RGB mean
 IMAGENET_STD = 0.229, 0.224, 0.225  # RGB standard deviation
+
+
+def normalize(x, mean=IMAGENET_MEAN, std=IMAGENET_STD, inplace=False):
+    # Denormalize RGB images x per ImageNet stats in BCHW format, i.e. = (x - mean) / std
+    return TF.normalize(x, mean, std, inplace=inplace)
+
+
+def denormalize(x, mean=IMAGENET_MEAN, std=IMAGENET_STD):
+    # Denormalize RGB images x per ImageNet stats in BCHW format, i.e. = x * std + mean
+    for i in range(3):
+        x[:, i] = x[:, i] * std[i] + mean[i]
+    return x
 
 
 class Albumentations:
@@ -282,24 +296,25 @@ def sample_segments(img, labels, segments, probability=0.5):
         h, w, c = img.shape  # height, width, channels
         for j in random.sample(range(n), k=round(probability * n)):
             l, s = labels[j], segments[j]
-            box = l[1].astype(int).clip(0,w-1), l[2].astype(int).clip(0,h-1), l[3].astype(int).clip(0,w-1), l[4].astype(int).clip(0,h-1) 
-            
-            #print(box)
+            box = l[1].astype(int).clip(0, w - 1), l[2].astype(int).clip(0, h - 1), l[3].astype(int).clip(0, w - 1), l[
+                4].astype(int).clip(0, h - 1)
+
+            # print(box)
             if (box[2] <= box[0]) or (box[3] <= box[1]):
                 continue
-            
+
             sample_labels.append(l[0])
-            
+
             mask = np.zeros(img.shape, np.uint8)
-            
+
             cv2.drawContours(mask, [segments[j].astype(np.int32)], -1, (255, 255, 255), cv2.FILLED)
-            sample_masks.append(mask[box[1]:box[3],box[0]:box[2],:])
-            
+            sample_masks.append(mask[box[1]:box[3], box[0]:box[2], :])
+
             result = cv2.bitwise_and(src1=img, src2=mask)
             i = result > 0  # pixels to replace
             mask[i] = result[i]  # cv2.imwrite('debug.jpg', img)  # debug
-            #print(box)
-            sample_images.append(mask[box[1]:box[3],box[0]:box[2],:])
+            # print(box)
+            sample_images.append(mask[box[1]:box[3], box[0]:box[2], :])
 
     return sample_labels, sample_images, sample_masks
 
@@ -320,44 +335,45 @@ def pastein(image, labels, sample_labels, sample_images, sample_masks):
         xmin = max(0, random.randint(0, w) - mask_w // 2)
         ymin = max(0, random.randint(0, h) - mask_h // 2)
         xmax = min(w, xmin + mask_w)
-        ymax = min(h, ymin + mask_h)   
-        
+        ymax = min(h, ymin + mask_h)
+
         box = np.array([xmin, ymin, xmax, ymax], dtype=np.float32)
         if len(labels):
             ioa = bbox_ioa(box, labels[:, 1:5])  # intersection over area     
         else:
             ioa = np.zeros(1)
-        
-        if (ioa < 0.30).all() and len(sample_labels) and (xmax > xmin+20) and (ymax > ymin+20):  # allow 30% obscuration of existing labels
-            sel_ind = random.randint(0, len(sample_labels)-1)
-            #print(len(sample_labels))
-            #print(sel_ind)
-            #print((xmax-xmin, ymax-ymin))
-            #print(image[ymin:ymax, xmin:xmax].shape)
-            #print([[sample_labels[sel_ind], *box]])
-            #print(labels.shape)
+
+        if (ioa < 0.30).all() and len(sample_labels) and (xmax > xmin + 20) and (
+                ymax > ymin + 20):  # allow 30% obscuration of existing labels
+            sel_ind = random.randint(0, len(sample_labels) - 1)
+            # print(len(sample_labels))
+            # print(sel_ind)
+            # print((xmax-xmin, ymax-ymin))
+            # print(image[ymin:ymax, xmin:xmax].shape)
+            # print([[sample_labels[sel_ind], *box]])
+            # print(labels.shape)
             hs, ws, cs = sample_images[sel_ind].shape
-            r_scale = min((ymax-ymin)/hs, (xmax-xmin)/ws)
-            r_w = int(ws*r_scale)
-            r_h = int(hs*r_scale)
-            
+            r_scale = min((ymax - ymin) / hs, (xmax - xmin) / ws)
+            r_w = int(ws * r_scale)
+            r_h = int(hs * r_scale)
+
             if (r_w > 10) and (r_h > 10):
                 r_mask = cv2.resize(sample_masks[sel_ind], (r_w, r_h))
                 r_image = cv2.resize(sample_images[sel_ind], (r_w, r_h))
-                temp_crop = image[ymin:ymin+r_h, xmin:xmin+r_w]
+                temp_crop = image[ymin:ymin + r_h, xmin:xmin + r_w]
                 m_ind = r_mask > 0
                 if m_ind.astype(np.int).sum() > 60:
                     temp_crop[m_ind] = r_image[m_ind]
-                    #print(sample_labels[sel_ind])
-                    #print(sample_images[sel_ind].shape)
-                    #print(temp_crop.shape)
-                    box = np.array([xmin, ymin, xmin+r_w, ymin+r_h], dtype=np.float32)
+                    # print(sample_labels[sel_ind])
+                    # print(sample_images[sel_ind].shape)
+                    # print(temp_crop.shape)
+                    box = np.array([xmin, ymin, xmin + r_w, ymin + r_h], dtype=np.float32)
                     if len(labels):
                         labels = np.concatenate((labels, [[sample_labels[sel_ind], *box]]), 0)
                     else:
                         labels = np.array([[sample_labels[sel_ind], *box]])
-                              
-                    image[ymin:ymin+r_h, xmin:xmin+r_w] = temp_crop
+
+                    image[ymin:ymin + r_h, xmin:xmin + r_w] = temp_crop
 
     return labels
 
@@ -378,11 +394,31 @@ def box_candidates(box1, box2, wh_thr=2, ar_thr=100, area_thr=0.1, eps=1e-16):  
     return (w2 > wh_thr) & (h2 > wh_thr) & (w2 * h2 / (w1 * h1 + eps) > area_thr) & (ar < ar_thr)  # candidates
 
 
-def denormalize(x, mean=IMAGENET_MEAN, std=IMAGENET_STD):
-    # Denormalize RGB images x per ImageNet stats in BCHW format, i.e. = x * std + mean
-    for i in range(3):
-        x[:, i] = x[:, i] * std[i] + mean[i]
-    return x
+class ToTensor:
+    # YOLOv5 ToTensor class for image preprocessing, i.e. T.Compose([LetterBox(size), ToTensor()])
+    def __init__(self, half=False):
+        super().__init__()
+        self.half = half
+
+    def __call__(self, im):  # im = np.array HWC in BGR order
+        im = np.ascontiguousarray(im.transpose((2, 0, 1))[::-1])  # HWC to CHW -> BGR to RGB -> contiguous
+        im = torch.from_numpy(im)  # to torch
+        im = im.half() if self.half else im.float()  # uint8 to fp16/32
+        im /= 255.0  # 0-255 to 0.0-1.0
+        return im
+
+
+class CenterCrop:
+    # YOLOv5 CenterCrop class for image preprocessing, i.e. T.Compose([CenterCrop(size), ToTensor()])
+    def __init__(self, size=640):
+        super().__init__()
+        self.h, self.w = (size, size) if isinstance(size, int) else size
+
+    def __call__(self, im):  # im = np.array HWC
+        imh, imw = im.shape[:2]
+        m = min(imh, imw)  # min dimension
+        top, left = (imh - m) // 2, (imw - m) // 2
+        return cv2.resize(im[top:top + m, left:left + m], (self.w, self.h), interpolation=cv2.INTER_LINEAR)
 
 
 def classify_albumentations(augment=True,
@@ -427,5 +463,6 @@ def classify_albumentations(augment=True,
 
 def classify_transforms(size=224):
     # Transforms to apply if albumentations not installed
-    return T.Compose([T.ToTensor(), T.Resize(size), T.CenterCrop(size), T.Normalize(IMAGENET_MEAN, IMAGENET_STD)])
-
+    assert isinstance(size, int), f'ERROR: classify_transforms size {size} must be integer, not (list, tuple)'
+    # T.Compose([T.ToTensor(), T.Resize(size), T.CenterCrop(size), T.Normalize(IMAGENET_MEAN, IMAGENET_STD)])
+    return T.Compose([CenterCrop(size), ToTensor(), T.Normalize(IMAGENET_MEAN, IMAGENET_STD)])
