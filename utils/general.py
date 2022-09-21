@@ -347,7 +347,7 @@ def git_describe(path=ROOT):  # path must be a directory
 @WorkingDirectory(ROOT)
 def check_git_status():
     # Recommend 'git pull' if code is out of date
-    msg = ', for updates see https://github.com/positive666/yolov5'
+    msg = ', for updates see https://github.com/jizhishutong/YOLOU'
     s = colorstr('github: ')  # string
     assert Path('.git').exists(), s + 'skipping check (not a git repository)' + msg
     assert not is_docker(), s + 'skipping check (Docker image)' + msg
@@ -887,7 +887,7 @@ def non_max_suppression(
     Returns:
          list of detections, on (n,6) tensor per image [xyxy, conf, cls]
     """
-
+    print('prediction.shape:', prediction.shape)
     if isinstance(prediction, (list, tuple)):  # YOLOv5 model in validation model, output = (inference_out, loss_out)
         prediction = prediction[0]  # select only inference output
 
