@@ -32,7 +32,7 @@ from torch.optim import SGD, Adam, AdamW, lr_scheduler
 from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # YOLOv5 root directory
+ROOT = FILE.parents[0]  # YOLOU root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
@@ -302,6 +302,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                               prefix=colorstr('train: '),
                                               shuffle=True)
     mlc = int(np.concatenate(dataset.labels, 0)[:, 0].max())  # max label class
+    labels = np.concatenate(dataset.labels, 0)
     nb = len(train_loader)  # number of batches
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'
 
@@ -321,7 +322,6 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                                        prefix=colorstr('val: '))[0]
 
         if not resume:
-            labels = np.concatenate(dataset.labels, 0)
             if plots:
                 plot_labels(labels, names, save_dir)
 
@@ -331,7 +331,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
             model.half().float()  # pre-reduce anchor precision
 
-        callbacks.run('on_pretrain_routine_end')
+        callbacks.run('on_pretrain_routine_end', labels, names)
 
     # DDP mode
     if cuda and RANK != -1:
@@ -366,9 +366,9 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         compute_loss = ComputeLoss(model)  # init loss class
     elif mode == 'yolox':
         compute_loss = ComputeXLoss(model)
-    elif mode == 'yolov6':
+    elif mode == 'yolov6-v1':
         compute_loss = Computev6Loss()
-    elif mode == 'yolov6-2':
+    elif mode in ['yolov6-v2', 'yoloe']:
         compute_loss = ComputeLossv6_e()
     else:
         compute_loss = None
@@ -402,10 +402,10 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             mloss = torch.zeros(4, device=device)  # mean losses
             # iou_loss, obj_loss, cls_loss, l1_loss
             LOGGER.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'l1', 'labels', 'img_size'))
-        elif mode == 'yolov6-2':
+        elif mode in ['yolov6-v2', 'yoloe']:
             mloss = torch.zeros(3, device=device)  # mean losses
             LOGGER.info(('\n' + '%10s' * 7) % ('Epoch', 'gpu_mem', 'iou', 'dfl', 'cls', 'labels', 'img_size'))
-        elif mode == 'yolov6':
+        elif mode == 'yolov6-v1':
             mloss = torch.zeros(4, device=device)  # mean losses
             LOGGER.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'iou', 'l1', 'obj', 'cls', 'labels', 'img_size'))
         else:
@@ -453,9 +453,9 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     loss, loss_items = compute_loss(pred, targets.to(device))  # init loss class
                 elif mode == 'yolox':
                     loss, loss_items = compute_loss(pred, targets.to(device))
-                elif mode == 'yolov6':
+                elif mode == 'yolov6-v1':
                     loss, loss_items = compute_loss(pred, targets.to(device))
-                elif mode == 'yolov6-2':
+                elif mode in ['yolov6-v2', 'yoloe']:
                     loss, loss_items = compute_loss(pred, targets.to(device), epoch)
                 else:
                     loss, loss_items = 0, 0
@@ -484,7 +484,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 mloss_count = mloss.shape[0]
                 pbar.set_description(('%10s' * 2 + '%10.4g' * (mloss_count+2)) %
                                      (f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
-                callbacks.run('on_train_batch_end', ni, model, imgs, targets, paths, plots)
+                callbacks.run('on_train_batch_end', model, ni, imgs, targets, paths, list(mloss))
                 if callbacks.stop_training:
                     return
             # end batch ------------------------------------------------------------------------------------------------
@@ -576,14 +576,14 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
 def parse_opt(known=False):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='yolov6-2', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
+    parser.add_argument('--mode', type=str, default='yolov6-v2', help='yolo   :[yolov3, yolov4, yolov5, yolor, yolov5-lite]'
                                                                   'yolov7 :[yolov7, ]'
                                                                   'yolox  :[yolox, yolox-lite]'
-                                                                  'yolov6  :[yolov6, ]'
-                                                                  'yolov6-2:[yolov6-2.0]')
+                                                                  'yolov6-v1  :[yolov6-v1, ]'
+                                                                  'yolov6-v2:[yolov6-v2, yoloe]')
     parser.add_argument('--use_aux', type=bool, default=False, help='ues aux loss or not')
-    parser.add_argument('--weights', type=str, default=ROOT / '', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default=ROOT / 'models/yolov6-e/yolov6s.yaml', help='model.yaml path')
+    parser.add_argument('--weights', type=str, default=ROOT / 'weights/yolov5s.pt', help='initial weights path')
+    parser.add_argument('--cfg', type=str, default=ROOT / 'models/object_detection/yolov6_v2/yolov6s.yaml', help='model.yaml path')
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')
     parser.add_argument('--hyp', type=str, default=ROOT / 'data/hyps/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=100)
