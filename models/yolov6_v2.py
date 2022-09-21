@@ -153,13 +153,13 @@ class Detectv6_E(nn.Module):
 
             pred_bboxes = dist2bbox(reg_dist_list, anchor_points, box_format='xywh')
             pred_bboxes *= stride_tensor
-            return torch.cat(
+            return (torch.cat(
                 [
                     pred_bboxes,
                     torch.ones((b, pred_bboxes.shape[1], 1), device=pred_bboxes.device, dtype=pred_bboxes.dtype),
                     cls_score_list
                 ],
-                axis=-1)
+                axis=-1),)
 
 
 def build_effidehead_layer(channels_list, num_anchors, num_classes, reg_max=16):
