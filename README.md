@@ -234,3 +234,6 @@ If you use YOLOU in your research, please cite our work and give a star ⭐:
 }
 ```
 </details>
+
+## For more information, Please follow the QR code below：
+![YOLOU](./images/gzh.png)
